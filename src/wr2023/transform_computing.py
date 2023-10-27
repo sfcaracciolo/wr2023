@@ -8,7 +8,7 @@ from wr_transform import TransformModel, TransformParameters
 import sys 
 
 DST_PATH = sys.argv[1]
-fs = sys.argv[2]
+fs = float(sys.argv[2])
 
 root = zarr.open(DST_PATH, mode='r+')
 

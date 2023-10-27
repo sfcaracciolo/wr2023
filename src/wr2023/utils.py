@@ -8,6 +8,7 @@ import numpy as np
 from openpyxl import load_workbook
 
 def selection_criteria():
+    # return [50]
     return sorted( 
         [83, 86, 98, 101, 104, 144,
         149, 159, 164, 176, 216, 240,
@@ -21,7 +22,7 @@ def selection_criteria():
 def report_model_metrics(DST_PATH):
     root = zarr.open(DST_PATH, mode='r')
 
-    HEADER = ['id', '# nbeats', '# nbad', '# neff', '# nefftr', 'cc', 're'] # 'rdms', 'rmse', 'mae']
+    HEADER = ['id', '# nbeats', '# nbad', 'cc', 're'] # 'rdms', 'rmse', 'mae']
     file = pathlib.Path(__file__).parent / 'reports' / 'model_metrics.csv'
 
     with open(file, 'w', newline='') as csvfile:
@@ -34,12 +35,12 @@ def report_model_metrics(DST_PATH):
 
             metrics = mv_group['metrics'][:]
             gt_bad_beats = gt_group['bad_beats'][:]
-            tr_bad_beats = root[f'{n}/transform_validation/bad_beats'][:]
+            # tr_bad_beats = root[f'{n}/transform_validation/bad_beats'][:]
 
             nbeats = gt_group['beat_matrix'].shape[0] # amount of beats
             nbad = gt_bad_beats.size # amount of bad beats
-            neff = nbeats - nbad # amount of beats for model validations
-            nefftr = np.union1d(gt_bad_beats, tr_bad_beats).size - nbad # extra amount of beats for model validations
+            # neff = nbeats - nbad # amount of beats for model validations
+            # nefftr = np.union1d(gt_bad_beats, tr_bad_beats).size - nbad # extra amount of beats for model validations
 
             cc = f'{np.nanmean(metrics[:,0]):.4f}({np.nanstd(metrics[:,0]):.4f})'
             re = f'{np.nanmean(metrics[:,4]):.4f}({np.nanstd(metrics[:,4]):.4f})'
@@ -47,12 +48,12 @@ def report_model_metrics(DST_PATH):
             # rmse = f'{np.nanmean(metrics[:,2]):.4f}({np.nanstd(metrics[:,2]):.4f})'
             # mae = f'{np.nanmean(metrics[:,3]):.4f}({np.nanstd(metrics[:,3]):.4f})'
 
-            filewriter.writerow([f'{n:03}', f'{nbeats:04}', f'{nbad:04}', f'{neff:04}', f'{nefftr:04}', cc, re ]) # rdms, rmse, mae, re])
+            filewriter.writerow([f'{n:03}', f'{nbeats:04}', f'{nbad:04}', cc, re ]) # rdms, rmse, mae, re])
 
 def report_transform_metrics(DST_PATH):
     root = zarr.open(DST_PATH, mode='r')
 
-    HEADER = ['id','P duration [ms]', 'PR interval [ms]', 'RS duration [ms]', 'QT interval [ms]', 'P amplitude [mV]', 'R amplitude [mV]', 'S amplitude [mV]', 'T amplitude [mV]']
+    HEADER = ['id', '# nbeats', '# nbad', 'P', 'PR', 'RS', 'QT', 'P', 'R', 'S', 'T']
     file = pathlib.Path(__file__).parent / 'reports' / 'transform_metrics.csv'
     with open(file, 'w', newline='') as csvfile:
 
@@ -64,6 +65,9 @@ def report_transform_metrics(DST_PATH):
             tr_group = root[f'{n}/transform_validation']
             bad_beats = np.union1d(gt_group['bad_beats'][:], tr_group['bad_beats'][:])
 
+            nbeats = gt_group['beat_matrix'].shape[0] # amount of beats
+            nbad = bad_beats.size # amount of bad beats
+
             gt_mea = np.delete(np.delete(gt_group['measurements'][:], bad_beats, axis=0), 5, axis=1)
             tr_mea = np.delete(np.delete(tr_group['measurements'][:], bad_beats, axis=0), 5, axis=1)
 
@@ -71,7 +75,7 @@ def report_transform_metrics(DST_PATH):
             rho = np.corrcoef(gt_mea, y=tr_mea, rowvar=False).diagonal(8) 
             rho = np.round(rho, decimals=4)
 
-            filewriter.writerow([n, *rho.tolist() ]) # rdms, rmse, mae, re])
+            filewriter.writerow([f'{n:03}', f'{nbeats:04}', f'{nbad:04}', *rho.tolist() ]) # rdms, rmse, mae, re])
 
 def report_beat_criteria(DST_PATH, group_name='ground_truth'):
     root = zarr.open(DST_PATH, mode='r')

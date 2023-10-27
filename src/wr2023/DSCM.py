@@ -72,4 +72,4 @@ for n in utils.selection_criteria():
 utils.report_beat_criteria(DST_PATH, GROUP_NAME)
 
 if GROUP_NAME == 'transform_validation':
-    utils.report_transform_metrics()
+    utils.report_transform_metrics(DST_PATH)

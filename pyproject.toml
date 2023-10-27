@@ -21,6 +21,7 @@ classifiers = [
 ]
 dependencies = [
   "zarr",
+  "openpyxl",
   "ecg_tools @ git+https://github.com/sfcaracciolo/ecg_tools.git",
   "fpt_tools @ git+https://github.com/sfcaracciolo/fpt_tools.git",
   "wr_transform @ git+https://github.com/sfcaracciolo/wr_transform.git",

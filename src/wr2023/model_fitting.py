@@ -5,10 +5,11 @@ from ecg_models.waves import BeatFeatures, FunFeatures
 from ecg_models.utils import FeatureEditor, vectorize, fvec, modelize
 from fpt_tools import FPTMasked
 import zarr 
-import utils 
+from utils import InfoReader 
 import sys 
 
 DST_PATH = sys.argv[1]
+INFO_PATH = sys.argv[2]
 
 root = zarr.open(DST_PATH, mode='r+')
 
@@ -49,7 +50,7 @@ def init_estimation(fid, beat):
     init_fe = editor.get_feature()
 
     # factors
-    af, μf, σf = .5, .1, .8
+    af, μf, σf = .5, .15, .8
 
     # inf bounds
     editor = FeatureEditor(init_fe)
@@ -73,8 +74,10 @@ def init_estimation(fid, beat):
 def model(θ, *args):
     return fvec(f, Waves, θ, 0, *args)
 
-for n in utils.selection_criteria():
-
+ir = InfoReader(INFO_PATH)
+sc = ir.selection_criteria()
+for n in sc:
+    
     mv_group = root.create_group(
         f'{n}/model_validation/',
         overwrite=True
@@ -111,6 +114,7 @@ for n in utils.selection_criteria():
             beat_matrix[i],
             p0 = init_features,
             bounds = bounds,
+            max_nfev = 200 * window
         )
 
         fitted_beat_matrix[i] = f(θ, modelize([0]+features[i].tolist(), Waves))

@@ -32,10 +32,11 @@ def bland_altman_plot(data1, data2):
     p.axs.text(.1,.9,f'$\\mu = {md:.3f}$', transform=p.axs.transAxes)
     p.axs.text(.1,.8,f'$\\sigma = {sd:.3f}$', transform=p.axs.transAxes)
 
-root = zarr.open('E:\wrdb\data.zarr', mode='r')
-
+root = zarr.open('E:\wrdb\wr2023.zarr', mode='r')
+ir = utils.InfoReader('E:\wrdb\\raw\info.csv')
+sc = ir.selection_criteria()
 gt_meas, tr_meas = [], []
-for n in utils.selection_criteria():
+for n in sc:
     gt_group = root[f'{n}/ground_truth']
     tr_group = root[f'{n}/transform_validation']
     bad_beats = np.union1d(gt_group['bad_beats'][:], tr_group['bad_beats'][:])

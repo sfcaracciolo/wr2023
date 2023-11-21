@@ -1,14 +1,17 @@
 import numpy as np 
 import zarr 
-import utils 
+from utils import InfoReader, report_model_metrics
 import sys 
 
 DST_PATH = sys.argv[1]
+INFO_PATH = sys.argv[2]
 
 root = zarr.open(DST_PATH, mode='r+')
 
-for n in utils.selection_criteria():
-
+ir = InfoReader(INFO_PATH)
+sc = ir.selection_criteria()
+for n in sc:
+    
     gt_group = root[f'{n}/ground_truth/']
     mv_group = root[f'{n}/model_validation/']
 
@@ -63,4 +66,4 @@ for n in utils.selection_criteria():
 
     print(f'register completed: {n}')
 
-utils.report_model_metrics(DST_PATH)
+report_model_metrics(DST_PATH, INFO_PATH)

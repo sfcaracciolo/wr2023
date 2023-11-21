@@ -1,26 +1,41 @@
+from datetime import date
 import statistics
+from typing import Literal
 import zarr 
 import pathlib
 import csv
-from glob import glob
 import scipy as sp 
 import numpy as np 
-from openpyxl import load_workbook
 
-def selection_criteria():
-    # return [50]
-    return sorted( 
-        [83, 86, 98, 101, 104, 144,
-        149, 159, 164, 176, 216, 240,
-        243, 247, 262, 269, 317, 318,
-        319, 50, 52, 56, 61, 66, 70,
-        74, 77, 80, 219, 224, 227,
-        230, 233, 250, 253, 255,
-        260, 320, 321, 322, 323, 324 ]
-    )
+def validation_beats(ROOT_PATH, INFO_PATH, group_name='ground_truth'):
+    root = zarr.open(ROOT_PATH, mode='r')
+    ir = InfoReader(INFO_PATH)
+    sc = ir.selection_criteria()
+    nbeats = 0
+    for n in sc:
+        group = root[f'{n}/{group_name}/']
+        nbeats += group['fpt'].shape[0] - group['bad_beats'].size
+    print(f'Total beats = {nbeats}')
 
-def report_model_metrics(DST_PATH):
-    root = zarr.open(DST_PATH, mode='r')
+def total_stats(ROOT_PATH, INFO_PATH):
+    root = zarr.open(ROOT_PATH, mode='r')
+    ir = InfoReader(INFO_PATH)
+    sc = ir.selection_criteria()
+    metrics = []
+    for n in sc:
+        group = root[f'{n}/model_validation/']
+        metrics.append(group['metrics'][:,[0,4]])
+    
+    data = np.vstack(metrics)
+    Q1 = np.nanquantile(data, .25, axis=0)
+    Q2 = np.nanquantile(data, .50, axis=0)
+    Q3 = np.nanquantile(data, .75, axis=0)
+
+    for q1, q2, q3 in zip(Q1,Q2,Q3):
+        print(f'Q1 = {q1:.3f}, Q2 = {q2:.3f}, Q3 = {q3:.3f}')
+
+def report_model_metrics(ROOT_PATH, INFO_PATH):
+    root = zarr.open(ROOT_PATH, mode='r')
 
     HEADER = ['id', '# nbeats', '# nbad', 'cc', 're'] # 'rdms', 'rmse', 'mae']
     file = pathlib.Path(__file__).parent / 'reports' / 'model_metrics.csv'
@@ -29,18 +44,17 @@ def report_model_metrics(DST_PATH):
         filewriter = csv.writer(csvfile, delimiter='\t')
         filewriter.writerow(HEADER)
 
-        for n in selection_criteria():
+        ir = InfoReader(INFO_PATH)
+        sc = ir.selection_criteria()
+        for n in sc:
             gt_group = root[f'{n}/ground_truth/']
             mv_group = root[f'{n}/model_validation/']
 
             metrics = mv_group['metrics'][:]
             gt_bad_beats = gt_group['bad_beats'][:]
-            # tr_bad_beats = root[f'{n}/transform_validation/bad_beats'][:]
 
             nbeats = gt_group['beat_matrix'].shape[0] # amount of beats
             nbad = gt_bad_beats.size # amount of bad beats
-            # neff = nbeats - nbad # amount of beats for model validations
-            # nefftr = np.union1d(gt_bad_beats, tr_bad_beats).size - nbad # extra amount of beats for model validations
 
             cc = f'{np.nanmean(metrics[:,0]):.4f}({np.nanstd(metrics[:,0]):.4f})'
             re = f'{np.nanmean(metrics[:,4]):.4f}({np.nanstd(metrics[:,4]):.4f})'
@@ -50,8 +64,8 @@ def report_model_metrics(DST_PATH):
 
             filewriter.writerow([f'{n:03}', f'{nbeats:04}', f'{nbad:04}', cc, re ]) # rdms, rmse, mae, re])
 
-def report_transform_metrics(DST_PATH):
-    root = zarr.open(DST_PATH, mode='r')
+def report_transform_metrics(ROOT_PATH, INFO_PATH):
+    root = zarr.open(ROOT_PATH, mode='r')
 
     HEADER = ['id', '# nbeats', '# nbad', 'P', 'PR', 'RS', 'QT', 'P', 'R', 'S', 'T']
     file = pathlib.Path(__file__).parent / 'reports' / 'transform_metrics.csv'
@@ -60,7 +74,9 @@ def report_transform_metrics(DST_PATH):
         filewriter = csv.writer(csvfile, delimiter='\t')
         filewriter.writerow(HEADER)
 
-        for n in selection_criteria():
+        ir = InfoReader(INFO_PATH)
+        sc = ir.selection_criteria()
+        for n in sc:
             gt_group = root[f'{n}/ground_truth']
             tr_group = root[f'{n}/transform_validation']
             bad_beats = np.union1d(gt_group['bad_beats'][:], tr_group['bad_beats'][:])
@@ -77,42 +93,48 @@ def report_transform_metrics(DST_PATH):
 
             filewriter.writerow([f'{n:03}', f'{nbeats:04}', f'{nbad:04}', *rho.tolist() ]) # rdms, rmse, mae, re])
 
-def report_beat_criteria(DST_PATH, group_name='ground_truth'):
-    root = zarr.open(DST_PATH, mode='r')
+def report_beat_criteria(ROOT_PATH, INFO_PATH, group_name='ground_truth'):
+    root = zarr.open(ROOT_PATH, mode='r')
     
-    HEADER = ['id', 'invalid fiducial mask', 'lesser cc mask', 'out of window mask', 'lost [%]']
+    HEADER = ['id', 'nbeats', 'invalid fiducial mask', 'lesser p rate mask', 'lesser cc mask', 'out of window mask', 'lost [%]']
     file = pathlib.Path(__file__).parent / 'reports' / f'beat_criteria_of_{group_name}.csv'
 
     with open(file, 'w', newline='') as csvfile:
         filewriter = csv.writer(csvfile, delimiter='\t')
         filewriter.writerow(HEADER)
 
-        for n in selection_criteria():
+        ir = InfoReader(INFO_PATH)
+        sc = ir.selection_criteria()
+        for n in sc:
             group = root[f'{n}/{group_name}/']
             bad_beats = group['bad_beats']
             n_beats = group['beat_matrix'].shape[0]
             att = bad_beats.attrs.items()
             row = [None]*len(HEADER)
-            row[0] = n
+            row[0] = f'{n:03}'
+            row[1] = f'{n_beats:06}'
+            acc = 0
             for k, v in att:
                 ix = HEADER.index(k)
-                row[ix] = v
-            row[-1] = f'{100 * ( row[1] + row[2] + row[3] ) / n_beats :.1f} ({n_beats})'
+                row[ix] = f'{v:04}'
+                acc += v
+            row[-1] = f'{100 * acc / n_beats :.1f}'
             filewriter.writerow(row)
 
-def import_matfiles(SRC_PATH):
-    females_paths = glob('E:\paper WR model\hembras lead II\*.mat')
-    males_paths = glob('E:\paper WR model\machos lead II\*.mat')
-    paths = females_paths + males_paths
-    for f in paths:
-        n = pathlib.Path(f).stem.split('_')[0]
-        fmat = sp.io.loadmat(f, simplify_cells=True)['data']
-        sp.io.savemat(SRC_PATH + n + '.mat', {'DII':fmat})
-
-def export_matfiles(DST_PATH, group_name='ground_truth'):
-    root = zarr.open(DST_PATH, mode='r')
+def export_matfiles(ROOT_PATH, INFO_PATH, group_name='ground_truth'):
+    root = zarr.open(ROOT_PATH, mode='r')
     db = {}
-    for n in selection_criteria():
+    ir = InfoReader(INFO_PATH)
+    if group_name == 'ground_truth':
+        sc = ir.inclusion_criteria()
+        for i in ir.exclusion_criteria_after_filtering():
+            sc.remove(i)
+    elif group_name == 'transform_validation':
+        sc = ir.selection_criteria()
+    else:
+        raise ValueError('ERROR group name')
+
+    for n in sc:
         group = root[f'{n}/{group_name}']
         ecg = group[f'ecg'][:]
         try:
@@ -121,71 +143,84 @@ def export_matfiles(DST_PATH, group_name='ground_truth'):
             n_beats = -1
         db[f'Reg{n}'] = {'ecg': ecg, 'beats':n_beats}
     sp.io.savemat(f'{group_name}.mat', db)
-
-def stats(XLSX_PATH):
-    ir = InfoReader(XLSX_PATH)
-
-    males = [v for v in ir.get_males() if v in selection_criteria()]
-    females = [v for v in ir.get_females() if v in selection_criteria()]
-
-    m = ir.get(males)
-    print(f'Machos {len(m)}')
-    print(f"Peso = {ir.mean(m, 'peso'):.1f}({ir.std(m, 'peso'):.1f})")
-    print(f"Edad = {ir.mean(m, 'edad'):.1f}({ir.std(m, 'edad'):.1f})")
-
-    m = ir.get(females)
-    print(f'Hembras {len(m)}')
-    print(f"Peso = {ir.mean(m, 'peso'):.1f}({ir.std(m, 'peso'):.1f})")
-    print(f"Edad = {ir.mean(m, 'edad'):.1f}({ir.std(m, 'edad'):.1f})")
-
-
 class InfoReader:
-    def __init__(self, path) -> None:
-        sheet = load_workbook(filename = path).active
+    def __init__(self, CSV_PATH, MAT_PATH='E:/wrdb/raw/') -> None:
+        # InfoReader.stats('E:/wrdb/raw/info.csv')
+        self.fs = 1024
         self._data = {}
-        for row in sheet.iter_rows(min_row=4, max_col=16, max_row=220):
-            n = row[0].value
-            self._data[n] = {
-                'rata': row[1].value,
-                'fecha de nacimiento': row[2].value,
-                'fecha de registro': row[3].value,
-                'fecha de castracion': row[4].value,
-                'peso': row[5].value,
-                'edad': (row[3].value - row[2].value).total_seconds() / 60 / 60 / 24 / 7,
-                'sexo': self.set_sex(row),
-                'estado': self.set_state(row)
-            }
+        with open(CSV_PATH, 'r', newline='') as f:
+            table = csv.reader(f)
+            next(table) # skip header
+            for row in table:
+                n = int(row[0])
+                self._data[n] = {
+                    'nrat': int(row[1]),
+                    'birth date': date.fromisoformat(row[2]),
+                    'recording date': date.fromisoformat(row[3]),
+                    'castration date': date.fromisoformat(row[4]) if row[4] != '' else None,
+                    'weight': int(row[5]),
+                    'sex': row[6],
+                    'protocol': row[7][0],
+                    'comment': row[8],
+                    'cable': int(row[7][1]),
+                    'age': (date.fromisoformat(row[3]) - date.fromisoformat(row[2])).total_seconds() / 60 / 60 / 24 / 7,
+                    'samples': sp.io.loadmat(MAT_PATH + f'RegECG_{n}_1.mat', simplify_cells=True)['d']['CantidadDeDatos'] if MAT_PATH is not None else None
+                }
 
-    def set_state(self, row): 
-        if row[6].value == 1:
-            return 'C1'
-        if row[7].value == 1:
-            return 'C2'
-        if row[8].value == 1:
-            return 'A1'
-        if row[9].value == 1:
-            return 'A2'
-        if row[10].value == 1:
-            return 'A3'
-        if row[11].value == 1:
-            return 'P1'
-        if row[12].value == 1:
-            return 'P2'
-        raise ValueError(f'Undefined state in register {row[0].value}')
-    
-    def set_sex(self, row):
-        if row[14].value == 1:
-            return 'F'
-        if row[15].value == 1:
-            return 'M'
-        raise ValueError(f'Undefined sex in register {row[0].value}')
-    
-    def get_males(self):
-        return [ k for k, v in self._data.items() if v['sexo'] == 'M'] 
+    def inclusion_criteria(self):
+        control = self.get_protocol('C')
+        cable = self.get_cable(2)
+        noncas = self.get_nocastradas()
+        return sorted(set(control).intersection(cable).intersection(noncas))
 
-    def get_females(self):
-        return [ k for k, v in self._data.items() if v['sexo'] == 'F'] 
+    def exclusion_criteria_after_filtering(self):
+        # for i in [ 89, 92, 95, 107, 152, 155, 168, 173, 179, 208, 210, 237, 257, 265, 267, 273, 316, 325]: # see morphology
+        #     sc.remove(i)
+        return [ 
+            257, # noisy
+            264, # pathology
+            325, # noisy 
+        ]
     
+    def exclusion_criteria_after_delineation(self):
+        return [ 
+            173, # low T wave
+            66, # bad delineation
+            107, # bad delineation
+            179 # bad delineation
+        ]
+    
+    def exclusion_criteria(self):
+        return self.exclusion_criteria_after_filtering() + self.exclusion_criteria_after_delineation()
+     
+    def selection_criteria(self):
+        sc = self.inclusion_criteria()
+        for i in self.exclusion_criteria():
+            sc.remove(i)
+        return sc
+    
+    def filter_by(self, k, v, data=None, condition= lambda a, b: a == b):
+        _d = self._data if data is None else data
+        return [ nreg for nreg, item in _d.items() if condition(item[k], v)] 
+
+    def get_castradas(self, data=None):
+        return self.filter_by('castration date', None, data=data, condition=lambda a, b: a != b)
+
+    def get_nocastradas(self, data=None):
+        return self.filter_by('castration date', None, data=data)
+
+    def get_cable(self, c: Literal[1, 2], data=None):
+        return self.filter_by('cable', c, data=data)
+    
+    def get_protocol(self, p: Literal['C', 'A', 'P'], data=None):
+        return self.filter_by('protocol', p, data=data)
+    
+    def get_males(self, data=None):
+        return self.filter_by('sex', 'M', data=data)
+
+    def get_females(self, data=None):
+        return self.filter_by('sex', 'F', data=data)
+
     def get(self, lst):
         return { k:self._data[k] for k in lst} 
     
@@ -194,3 +229,75 @@ class InfoReader:
     
     def std(self, data, key):
         return statistics.stdev(map(lambda r: r[key], data.values()))
+    
+    def min(self, data, key):
+        return min(map(lambda r: r[key], data.values()))
+    
+    def max(self, data, key):
+        return max(map(lambda r: r[key], data.values()))
+    
+    def get_rats(self, data=None):
+        _d = self._data if data is None else data
+        rats = {}
+        for k0, v0 in _d.items():
+            for k1, v1 in rats.items():
+                if (v0['nrat'] == v1['nrat']) and (v0['recording date'] == v1['recording date']) and (v0['sex'] == v1['sex']):
+                    break
+            else:
+                rats[k0] = v0
+        return rats
+    
+    @classmethod
+    def stats(cls, CSV_PATH, MAT_PATH):
+        ir = cls(CSV_PATH, MAT_PATH)
+
+        rats = ir.get_rats()
+        print(f"# ratas = {len(rats)}")
+        print(f"\t# hembras = {len(ir.get_females(data=rats))}")
+        print(f"\t# machos = {len(ir.get_males(data=rats))}")
+        print(f"\t# castradas = {len(ir.get_castradas(data=rats))}")
+        print(f"\t# no castradas = {len(ir.get_nocastradas(data=rats))}")
+
+
+        print(f'# registros = {len(ir._data)}')
+        print(f"\t# castradas = {len(ir.get_castradas())}")
+        print(f"\t# no castradas = {len(ir.get_nocastradas())}")
+        print(f"\t# control = {len(ir.get_protocol('C'))}")
+        print(f"\t# atropina = {len(ir.get_protocol('A'))}")
+        print(f"\t# propranolol = {len(ir.get_protocol('P'))}")
+        print(f"\t# cable 1 = {len(ir.get_cable(1))}")
+        print(f"\t# cable 2 = {len(ir.get_cable(2))}")
+        print(f"\t# cable 3 = {len(ir.get_cable(3))}")
+
+        # print(f"tiempo = {ir.min(ir._data, 'samples')/fs/60:.1f} a {ir.max(ir._data, 'samples')/fs/60:.1f} minutos\n")
+        # print(f"tiempo = {ir.mean(ir._data, 'samples')/fs/60:.1f}({ir.std(ir._data, 'samples')/fs/60:.1f}) minutos\n")
+
+        ic = ir.inclusion_criteria()
+        irats = ir.get_rats(ir.get(ic))
+        males = ir.get_males(data=irats)
+        females = ir.get_females(data=irats)
+        print(f'\n# registros incluídos = {len(ic)}')
+        print(f'# ratas incluídas = {len(irats)}')
+        m = ir.get(males)
+        print(f'\t# machos = {len(m)}\t')
+        print(f"\tpeso = {ir.mean(m, 'weight'):.1f}({ir.std(m, 'weight'):.1f}) gramos")
+        print(f"\tedad = {ir.mean(m, 'age'):.1f}({ir.std(m, 'age'):.1f}) semanas\n")
+        m = ir.get(females)
+        print(f'\t# hembras = {len(m)}\t')
+        print(f"\tpeso = {ir.mean(m, 'weight'):.1f}({ir.std(m, 'weight'):.1f}) gramos")
+        print(f"\tedad = {ir.mean(m, 'age'):.1f}({ir.std(m, 'age'):.1f}) semanas\n")
+
+        print(f'# registros excluídos por filtrado  = {len(ir.exclusion_criteria_after_filtering())}')
+        print(f'# registros excluídos por delineado  = {len(ir.exclusion_criteria_after_delineation())}')
+        sc = ir.selection_criteria()
+        print(f'# registros útiles = {len(sc)}')
+
+        return ir
+    
+    def trim_value(self, nreg): # trim for avoid spikes
+        if nreg == 56: return 10580, -1 
+        if nreg == 104: return 0, 124150 
+        if nreg == 155: return 2380, -1 
+        if nreg == 164: return 3780, -1 
+        if nreg == 320: return 124750, -1
+        return 0, -1

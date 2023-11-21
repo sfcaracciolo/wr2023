@@ -3,24 +3,27 @@ import numpy as np
 import ecg_tools 
 from fpt_tools import FPTMasked
 import zarr 
-import utils
+from utils import InfoReader, report_beat_criteria, report_transform_metrics
 import sys
 
 # DCSM: Delination / Segmentation / Criteria / Measurements
 
-DST_PATH = sys.argv[1]
+ROOT_PATH = sys.argv[1]
 DELI_PATH = sys.argv[2]
 GROUP_NAME = sys.argv[3]
 fs = float(sys.argv[4])
+INFO_PATH = sys.argv[5]
 
-root = zarr.open(DST_PATH, mode='a')
+root = zarr.open(ROOT_PATH, mode='r+')
 
-for n in utils.selection_criteria():
+ir = InfoReader(INFO_PATH)
+sc = ir.selection_criteria()
+for n in sc:
 
     group = root[f'{n}/{GROUP_NAME}/']
 
     # delineation 
-    fpt = sp.io.loadmat(DELI_PATH + f'Delineada_Reg_{n}.mat', simplify_cells=True)['Resultados']
+    fpt = sp.io.loadmat(DELI_PATH + f'Delineada_Reg{n}.mat', simplify_cells=True)['Resultados']
     fpt -= 1 # numpy zero based indexing
     fpt[:, 9] = fpt[:, 7] # QRSend = Ton in WR
     fpt = np.nan_to_num(fpt, nan=2147483647, copy=True).astype(np.int32)
@@ -42,12 +45,13 @@ for n in utils.selection_criteria():
         'beat_matrix',
         data=beat_matrix,
         overwrite=True
-        )
+    )
 
     # beat selection criteria
     model = FPTMasked(fpt, [4], beat_matrix) # remove Q for WR
     ofw_amount = model.set_out_of_window_mask() # excluding beats with any fiducial out of window
     ifm_amount = model.set_invalid_fiducial_mask() # excluding beats with any nan in valid cols
+    prate_amount = model.set_lesser_than_peak_r_rate_mask(1, .05)
     cc_amount = model.set_lesser_than_cc_mask(.90)
     bad_beats = model.beat_matrix.get_masked_indices() # take indexes of excluded beats
     ix = group.array(
@@ -57,6 +61,7 @@ for n in utils.selection_criteria():
         )
     ix.attrs['out of window mask'] = ofw_amount 
     ix.attrs['invalid fiducial mask'] = ifm_amount
+    ix.attrs['lesser p rate mask'] = prate_amount
     ix.attrs['lesser cc mask'] = cc_amount
 
     # measurements
@@ -69,7 +74,7 @@ for n in utils.selection_criteria():
     
     print('register completed: ', n)
 
-utils.report_beat_criteria(DST_PATH, GROUP_NAME)
+report_beat_criteria(ROOT_PATH, INFO_PATH, GROUP_NAME)
 
 if GROUP_NAME == 'transform_validation':
-    utils.report_transform_metrics(DST_PATH)
+    report_transform_metrics(ROOT_PATH, INFO_PATH)

@@ -13,10 +13,10 @@ def set_violin_style(d):
                 p.set_facecolor('gray')
                 p.set_edgecolor('black')
         
-root = zarr.open('E:\wrdb\data.zarr', mode='r')
-ir = utils.InfoReader('E:\wrdb\info.xlsx')
-males = [v for v in ir.get_males() if v in utils.selection_criteria()]
-females = [v for v in ir.get_females() if v in utils.selection_criteria()]
+root = zarr.open('E:/wrdb/wr2023.zarr', mode='r')
+ir = utils.InfoReader('E:/wrdb/raw/info.csv')
+males = [v for v in ir.get_males() if v in ir.selection_criteria()]
+females = [v for v in ir.get_females() if v in ir.selection_criteria()]
 
 for group in [males, females]:
     ccs, res = [], []

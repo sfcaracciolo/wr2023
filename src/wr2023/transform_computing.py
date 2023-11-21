@@ -2,30 +2,35 @@ import numpy as np
 from ecg_models.Rat import Waves, f
 from ecg_models.utils import modelize
 from fpt_tools import FPTMasked
-import utils
+from utils import InfoReader, export_matfiles
 import zarr 
 from wr_transform import TransformModel, TransformParameters
 import sys 
 
 DST_PATH = sys.argv[1]
 fs = float(sys.argv[2])
+INFO_PATH = sys.argv[3]
 
 root = zarr.open(DST_PATH, mode='r+')
 
 K = TransformParameters(
-    P=1.6,
+    P=TransformParameters.kP(.95, .05),
     R=3.0,
     S=2.5,
-    T=2.6891,
+    T=TransformParameters.kT(.8, .4),
     W=1.0,
-    D=2.0
+    D=2.0,
+    J=TransformParameters.kJ()
 )
+print(K) 
 
 model = lambda x, fea: f(x, modelize([0]+fea.tolist(), Waves))
 tr_model = TransformModel(K, model)
 
-for n in utils.selection_criteria():
-
+ir = InfoReader(INFO_PATH)
+sc = ir.selection_criteria()
+for n in sc:
+    
     tr_group = root.create_group(
         f'{n}/transform_validation/',
         overwrite=True
@@ -70,4 +75,4 @@ for n in utils.selection_criteria():
     
     print('register completed: ', n)
 
-utils.export_matfiles(DST_PATH, 'transform_validation')
+export_matfiles(DST_PATH, INFO_PATH, 'transform_validation')

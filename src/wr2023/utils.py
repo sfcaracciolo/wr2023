@@ -7,15 +7,20 @@ import csv
 import scipy as sp 
 import numpy as np 
 
-def validation_beats(ROOT_PATH, INFO_PATH, group_name='ground_truth'):
+def validation_beats(ROOT_PATH, INFO_PATH):
     root = zarr.open(ROOT_PATH, mode='r')
     ir = InfoReader(INFO_PATH)
     sc = ir.selection_criteria()
-    nbeats = 0
+    mv_nbeats, tr_nbeats = 0, 0
     for n in sc:
-        group = root[f'{n}/{group_name}/']
-        nbeats += group['fpt'].shape[0] - group['bad_beats'].size
-    print(f'Total beats = {nbeats}')
+        tr_group = root[f'{n}/transform_validation']
+        gt_group = root[f'{n}/ground_truth']
+        mv_bad_beats = gt_group['bad_beats'].size
+        tr_bad_beats = np.union1d(gt_group['bad_beats'][:], tr_group['bad_beats'][:]).size
+        mv_nbeats += gt_group['fpt'].shape[0] - mv_bad_beats
+        tr_nbeats += gt_group['fpt'].shape[0] - tr_bad_beats
+    print(f'Total beats validation for model = {mv_nbeats}')
+    print(f'Total beats validation for transform = {tr_nbeats}')
 
 def total_stats(ROOT_PATH, INFO_PATH):
     root = zarr.open(ROOT_PATH, mode='r')
